@@ -1,12 +1,12 @@
 javascript:(function(){
 if(document.getElementById('twProPainterPanel'))return;
 
-const sOff='tw_painted_off_v26', sDef='tw_painted_def_v26', sTower='tw_painted_tower_v26', sCache='tw_painted_cache_v26';
+const sOff='tw_painted_off_v27', sDef='tw_painted_def_v27', sTower='tw_painted_tower_v27', sCache='tw_painted_cache_v27', sNotesText='tw_notes_text_v27';
 
 function getStored(k){try{const d=localStorage.getItem(k);return d?JSON.parse(d):{};}catch(e){return{};}}
 function saveStored(k,d){localStorage.setItem(k,JSON.stringify(d));}
 
-// Создаем панель управления
+// Создаем панель управления с расширенным поиском
 const p=document.createElement('div');
 p.id='twProPainterPanel';
 p.style.cssText='position:fixed;top:60px;right:10px;z-index:999999;background:#f5f5e1;border:2px solid #8B4513;border-radius:6px;padding:10px;width:320px;font-family:Verdana,Arial;font-size:11px;color:#333;box-shadow:0 4px 15px rgba(0,0,0,0.4);max-height:90vh;overflow-y:auto;';
@@ -14,6 +14,10 @@ p.innerHTML='<h3 style="margin:0 0 8px 0;color:#8B4513;text-align:center;font-si
 '<div style="margin-bottom:8px;background:#fffbe8;padding:6px;border:1px solid #e2d4b7;border-radius:4px;">'+
   '<div style="display:flex;gap:4px;margin-bottom:4px;"><button id="twPaintNowBtn" style="flex:1;padding:6px;background:#2e7d32;color:#fff;border:1px solid #000;border-radius:3px;font-weight:bold;cursor:pointer;">🎨 Обновить покраску карты</button></div>'+
   '<div style="display:flex;gap:4px;"><button id="twClearCacheBtn" style="flex:1;padding:4px;background:#b7950b;color:#fff;border:1px solid #000;border-radius:3px;font-weight:bold;cursor:pointer;">🧹 Очистить кэш</button><button id="twClearBtn" style="padding:4px 6px;background:#a93226;color:#fff;border:1px solid #000;border-radius:3px;font-weight:bold;cursor:pointer;">Сброс</button></div>'+
+'</div>'+
+'<div style="margin-bottom:6px;background:#eef2f7;padding:5px;border:1px solid #b0c4de;border-radius:4px;">'+
+  '<label style="display:block;font-weight:bold;margin-bottom:2px;color:#1c3d5a;font-size:10px;">🔍 Поиск по координатам и заметкам:</label>'+
+  '<input type="text" id="twGlobalSearch" placeholder="Введите координаты, тег или текст..." style="width:100%;padding:4px;font-size:10px;border:1px solid #93c5fd;border-radius:3px;box-sizing:border-box;">'+
 '</div>'+
 '<div style="margin-bottom:6px;border:1px solid #ff8a80;background:#ffe5e5;padding:5px;border-radius:4px;"><label style="display:block;font-weight:bold;margin-bottom:2px;color:#8e1b1b;">🔴 Офф координаты (<span id="twCountOff">0</span>):</label><textarea id="twCoordsListOff" style="width:100%;height:35px;font-size:10px;border:1px solid #ff8a80;border-radius:3px;background:#fff;box-sizing:border-box;resize:vertical;"></textarea></div>'+
 '<div style="margin-bottom:6px;border:1px solid #81c784;background:#e6f4ea;padding:5px;border-radius:4px;"><label style="display:block;font-weight:bold;margin-bottom:2px;color:#2e7d32;">🟢 Дефф координаты (<span id="twCountDef">0</span>):</label><textarea id="twCoordsListDef" style="width:100%;height:35px;font-size:10px;border:1px solid #81c784;border-radius:3px;background:#fff;box-sizing:border-box;resize:vertical;"></textarea></div>'+
@@ -41,16 +45,40 @@ function updateAreas(){
 updateAreas();
 document.getElementById('twClosePanel').onclick=()=>p.remove();
 
-document.getElementById('twClearBtn').onclick=()=>{if(confirm('Очистить базы данных?')){localStorage.removeItem(sOff);localStorage.removeItem(sDef);localStorage.removeItem(sTower);updateAreas();document.getElementById('twStatus').textContent='Сброшено!';}};
+document.getElementById('twClearBtn').onclick=()=>{if(confirm('Очистить базы данных?')){localStorage.removeItem(sOff);localStorage.removeItem(sDef);localStorage.removeItem(sTower);localStorage.removeItem(sNotesText);updateAreas();document.getElementById('copy-status').textContent='Сброшено!';}};
 document.getElementById('twClearCacheBtn').onclick=()=>{if(confirm('Очистить кэш карты?')){localStorage.removeItem(sCache);if(/screen=map/i.test(document.URL)) paintMap();}};
 
-// Парсинг документа
+// Глобальный поиск по всем сохраненным записям и тексту заметок
+document.getElementById('twGlobalSearch').oninput = function(){
+    const query = this.value.toLowerCase().trim();
+    const notesTextMap = getStored(sNotesText);
+    const o = getStored(sOff), d = getStored(sDef), t = getStored(sTower);
+    
+    if(!query){
+        updateAreas();
+        return;
+    }
+
+    // Фильтруем координаты по вхождению в саму координату или текст заметки
+    const filterCoords = (obj) => {
+        return Object.keys(obj).filter(coord => {
+            const text = (notesTextMap[coord] || '').toLowerCase();
+            return coord.toLowerCase().includes(query) || text.includes(query);
+        });
+    };
+
+    document.getElementById('twCoordsListOff').value = filterCoords(o).join('\n');
+    document.getElementById('twCoordsListDef').value = filterCoords(d).join('\n');
+    document.getElementById('twCoordsListTower').value = filterCoords(t).join('\n');
+};
+
+// Парсинг документа (с сохранением текстов заметок, дат и определений)
 function parseCoord(text) {
     const m = text.match(/(\d{3}\|\d{3})/);
     return m ? m[1] : null;
 }
 
-function parseNotesFromDocument(doc, offObj, defObj, towerObj) {
+function parseNotesFromDocument(doc, offObj, defObj, towerObj, notesTextObj) {
     const rows = Array.from(doc.querySelectorAll('table.overview_table tbody tr'));
     rows.forEach(row => {
         const villageCell = row.querySelector('td:nth-child(1)');
@@ -60,8 +88,13 @@ function parseNotesFromDocument(doc, offObj, defObj, towerObj) {
         const coord = parseCoord(villageCell.textContent.trim());
         if (!coord) return;
 
-        const noteBB = (noteBody.getAttribute('data-note-bb') || noteBody.textContent || '').toUpperCase();
+        const rawText = noteBody.textContent || '';
+        const noteBB = (noteBody.getAttribute('data-note-bb') || rawText).toUpperCase();
+        
+        // Сохраняем текст заметки для глобального поиска
+        notesTextObj[coord] = rawText.trim();
 
+        // Проверяем все наши определения
         if (noteBB.includes('БАШНЯ')) {
             towerObj[coord] = '#ffa500';
         }
@@ -86,8 +119,8 @@ async function collectAllNotes() {
     const visited = new Set();
     visited.add(startUrl);
 
-    const o = getStored(sOff), d = getStored(sDef), t = getStored(sTower);
-    parseNotesFromDocument(document, o, d, t);
+    const o = getStored(sOff), d = getStored(sDef), t = getStored(sTower), nt = getStored(sNotesText);
+    parseNotesFromDocument(document, o, d, t, nt);
 
     const queue = [];
     document.querySelectorAll('a.paged-nav-item').forEach(a => {
@@ -104,11 +137,11 @@ async function collectAllNotes() {
         if(st) st.textContent = `Сбор: ${++donePages}/${totalPages}`;
         try {
             const doc = await fetchPage(url);
-            parseNotesFromDocument(doc, o, d, t);
+            parseNotesFromDocument(doc, o, d, t, nt);
         } catch(e) {}
     }
 
-    saveStored(sOff, o); saveStored(sDef, d); saveStored(sTower, t);
+    saveStored(sOff, o); saveStored(sDef, d); saveStored(sTower, t); saveStored(sNotesText, nt);
     updateAreas();
 }
 
@@ -121,7 +154,7 @@ document.getElementById('collect-all-notes-btn').onclick = async function() {
     try {
         await collectAllNotes();
         document.getElementById('copy-status').textContent = 'Сбор завершен!';
-        alert('Все заметки со всех страниц успешно собраны!');
+        alert('Все заметки, определения и даты со всех страниц успешно собраны!');
         if(/screen=map/i.test(document.URL)) paintMap();
     } finally {
         this.disabled = false; this.textContent = '📥 Снять со ВСЕХ страниц';
@@ -191,10 +224,10 @@ document.getElementById('copy-notes-btn').onclick = async function(){
         const res = await fetch(`/game.php?village=${vId}&screen=notes&mode=ally&player=${mId}`, {credentials: 'same-origin'});
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         
-        const o = getStored(sOff), d = getStored(sDef), t = getStored(sTower);
-        parseNotesFromDocument(doc, o, d, t);
+        const o = getStored(sOff), d = getStored(sDef), t = getStored(sTower), nt = getStored(sNotesText);
+        parseNotesFromDocument(doc, o, d, t, nt);
         
-        saveStored(sOff, o); saveStored(sDef, d); saveStored(sTower, t);
+        saveStored(sOff, o); saveStored(sDef, d); saveStored(sTower, t); saveStored(sNotesText, nt);
         updateAreas();
         st.textContent = '✅ Загружено!';
         if(/screen=map/i.test(document.URL)) paintMap();
