@@ -5,7 +5,8 @@ const sOff='tw_painted_off_v32',
       sOffDead='tw_painted_off_dead_v32', 
       sDef='tw_painted_def_v32', 
       sDefDead='tw_painted_def_dead_v32', 
-      sTower='tw_painted_tower_v32', 
+      sTower='tw_painted_tower_v32',
+      sUnknown='tw_painted_unknown_v32', 
       sCache='tw_painted_cache_v32';
 
 function getStored(k){try{const d=localStorage.getItem(k);return d?JSON.parse(d):{};}catch(e){return{};}}
@@ -29,6 +30,7 @@ p.innerHTML='<h3 style="margin:0 0 6px 0;color:#7d510f;text-align:center;font-si
     '<div style="border:1px solid #81c784;background:#e6f4ea;padding:4px;border-radius:3px;"><label style="font-weight:bold;color:#2e7d32;font-size:10px;">🟢 Дефф (<span id="twCountDef">0</span>):</label><textarea id="twCoordsListDef" style="width:100%;height:22px;font-size:9px;"></textarea></div>'+
     '<div style="border:1px solid #00e676;background:#e8f5e9;padding:4px;border-radius:3px;"><label style="font-weight:bold;color:#00c853;font-size:10px;">🟢 Дефф слит (<span id="twCountDefDead">0</span>):</label><textarea id="twCoordsListDefDead" style="width:100%;height:22px;font-size:9px;"></textarea></div>'+
     '<div style="border:1px solid #ffb74d;background:#fff3e0;padding:4px;border-radius:3px;"><label style="font-weight:bold;color:#e65100;font-size:10px;">🟠 Башня (<span id="twCountTower">0</span>):</label><textarea id="twCoordsListTower" style="width:100%;height:22px;font-size:9px;"></textarea></div>'+
+    '<div style="border:1px solid #90caf9;background:#e3f2fd;padding:4px;border-radius:3px;"><label style="font-weight:bold;color:#1565c0;font-size:10px;">❓ Неизвестные / Другое (<span id="twCountUnknown">0</span>):</label><textarea id="twCoordsListUnknown" style="width:100%;height:22px;font-size:9px;"></textarea></div>'+
     '<div style="border-top:1px dashed #7d510f;padding-top:4px;">'+
       '<button id="collect-all-notes-btn" style="width:100%;padding:5px;background:#5b3511;color:white;border:1px solid #3c2007;border-radius:3px;font-weight:bold;cursor:pointer;margin-bottom:4px;font-size:10px;">📥 Снять со ВСЕХ страниц заметок</button>'+
       '<select id="player-select" size="2" style="width:100%;padding:2px;border:1px solid #bc9a63;font-size:9px;background:#fff;margin-bottom:3px;"><option value="">Выберите игрока...</option></select>'+
@@ -61,7 +63,7 @@ document.getElementById('tab-p-scanner').onclick = function(){
 document.getElementById('twClosePanel').onclick = () => p.remove();
 
 function updateAreas(){
-    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower);
+    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower), un = getStored(sUnknown);
     document.getElementById('twCoordsListOff').value = Object.keys(o).join(' ');
     document.getElementById('twCountOff').textContent = Object.keys(o).length;
     document.getElementById('twCoordsListOffDead').value = Object.keys(od).join(' ');
@@ -72,6 +74,8 @@ function updateAreas(){
     document.getElementById('twCountDefDead').textContent = Object.keys(dd).length;
     document.getElementById('twCoordsListTower').value = Object.keys(t).join(' ');
     document.getElementById('twCountTower').textContent = Object.keys(t).length;
+    document.getElementById('twCoordsListUnknown').value = Object.keys(un).join(' ');
+    document.getElementById('twCountUnknown').textContent = Object.keys(un).length;
 }
 updateAreas();
 
@@ -79,7 +83,8 @@ document.getElementById('twClearBtn').onclick = () => {
     if(confirm('Очистить базы данных?')){
         localStorage.removeItem(sOff); localStorage.removeItem(sOffDead);
         localStorage.removeItem(sDef); localStorage.removeItem(sDefDead);
-        localStorage.removeItem(sTower); localStorage.removeItem(sCache);
+        localStorage.removeItem(sTower); localStorage.removeItem(sUnknown);
+        localStorage.removeItem(sCache);
         updateAreas();
     }
 };
@@ -95,7 +100,7 @@ function parseCoord(text) {
     return m ? m[1] : null;
 }
 
-function parseNotesFromDocument(doc, offObj, offDeadObj, defObj, defDeadObj, towerObj) {
+function parseNotesFromDocument(doc, offObj, offDeadObj, defObj, defDeadObj, towerObj, unknownObj) {
     const rows = Array.from(doc.querySelectorAll('table.overview_table tbody tr'));
     rows.forEach(row => {
         const villageCell = row.querySelector('td:nth-child(1)');
@@ -103,11 +108,13 @@ function parseNotesFromDocument(doc, offObj, offDeadObj, defObj, defDeadObj, tow
         if (!villageCell || !noteBody) return;
         const coord = parseCoord(villageCell.textContent.trim());
         if (!coord) return;
-        const noteBB = (noteBody.getAttribute('data-note-bb') || noteBody.textContent || '').toUpperCase();
+        const noteBB = (noteBody.getAttribute('data-note-bb') || noteBody.textContent || '').toUpperCase().trim();
 
         delete offObj[coord]; delete offDeadObj[coord];
         delete defObj[coord]; delete defDeadObj[coord];
-        delete towerObj[coord];
+        delete towerObj[coord]; delete unknownObj[coord];
+
+        if (!noteBB) return; // Пустые заметки пропускаем
 
         const isDead = noteBB.includes('СЛИТ') || noteBB.includes('ПОГИБ') || noteBB.includes('УБИТ') || noteBB.includes('МИНУС');
         const isTower = noteBB.includes('БАШНЯ') || noteBB.includes('TOWER');
@@ -119,6 +126,7 @@ function parseNotesFromDocument(doc, offObj, offDeadObj, defObj, defDeadObj, tow
         else if (isOff) offObj[coord] = '#ff0000';
         else if (isDef && isDead) defDeadObj[coord] = '#00e676';
         else if (isDef) defObj[coord] = '#008000';
+        else unknownObj[coord] = '#2196f3'; // Неизвестные/другие заметки попадают сюда
     });
 }
 
@@ -131,8 +139,8 @@ async function fetchPage(url) {
 async function collectAllNotes() {
     const startUrl = window.location.href;
     const visited = new Set([startUrl]);
-    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower);
-    parseNotesFromDocument(document, o, od, d, dd, t);
+    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower), un = getStored(sUnknown);
+    parseNotesFromDocument(document, o, od, d, dd, t, un);
 
     const queue = [];
     document.querySelectorAll('a.paged-nav-item').forEach(a => {
@@ -149,10 +157,10 @@ async function collectAllNotes() {
         if(st) st.textContent = `Сбор: ${++donePages}/${totalPages}`;
         try {
             const doc = await fetchPage(url);
-            parseNotesFromDocument(doc, o, od, d, dd, t);
+            parseNotesFromDocument(doc, o, od, d, dd, t, un);
         } catch(e) {}
     }
-    saveStored(sOff, o); saveStored(sOffDead, od); saveStored(sDef, d); saveStored(sDefDead, dd); saveStored(sTower, t);
+    saveStored(sOff, o); saveStored(sOffDead, od); saveStored(sDef, d); saveStored(sDefDead, dd); saveStored(sTower, t); saveStored(sUnknown, un);
     updateAreas();
 }
 
@@ -207,8 +215,8 @@ document.getElementById('copy-notes-btn').onclick = async function(){
         const firstUrl = window.location.origin + `/game.php?village=${vId}&screen=notes&mode=ally&player=${mId}`;
         const firstDoc = await fetchPage(firstUrl);
         
-        const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower);
-        parseNotesFromDocument(firstDoc, o, od, d, dd, t);
+        const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower), un = getStored(sUnknown);
+        parseNotesFromDocument(firstDoc, o, od, d, dd, t, un);
 
         const visited = new Set([firstUrl]);
         const queue = [];
@@ -225,11 +233,11 @@ document.getElementById('copy-notes-btn').onclick = async function(){
             st.textContent = `Страницы: ${++donePages}/${totalPages}`;
             try {
                 const doc = await fetchPage(url);
-                parseNotesFromDocument(doc, o, od, d, dd, t);
+                parseNotesFromDocument(doc, o, od, d, dd, t, un);
             } catch(e) {}
         }
 
-        saveStored(sOff, o); saveStored(sOffDead, od); saveStored(sDef, d); saveStored(sDefDead, dd); saveStored(sTower, t);
+        saveStored(sOff, o); saveStored(sOffDead, od); saveStored(sDef, d); saveStored(sDefDead, dd); saveStored(sTower, t); saveStored(sUnknown, un);
         updateAreas();
         st.textContent = '✅ Загружено!';
         if(/screen=map/i.test(document.URL)) paintMap();
@@ -248,19 +256,20 @@ function paintMap(){
     }
     MapSdk.init();
     MapSdk.circles = [];
-    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower), cache = getStored(sCache);
+    const o = getStored(sOff), od = getStored(sOffDead), d = getStored(sDef), dd = getStored(sDefDead), t = getStored(sTower), un = getStored(sUnknown), cache = getStored(sCache);
     
     for(let c in o) cache[c] = '#ff0000';
     for(let c in od) cache[c] = '#ffeb3b';
     for(let c in d) cache[c] = '#008000';
     for(let c in dd) cache[c] = '#00e676';
     for(let c in t) cache[c] = '#ffa500';
+    for(let c in un) cache[c] = '#2196f3';
     saveStored(sCache, cache);
 
     for(let coord in cache){
         const [x, y] = coord.split('|');
         const color = cache[coord];
-        let fill = color === '#ffeb3b' ? 'rgba(255, 235, 59, 0.75)' : (color === '#008000' ? 'rgba(0, 128, 0, 0.75)' : (color === '#00e676' ? 'rgba(0, 230, 118, 0.75)' : (color === '#ffa500' ? 'rgba(255, 165, 0, 0.85)' : 'rgba(255, 0, 0, 0.75)')));
+        let fill = color === '#ffeb3b' ? 'rgba(255, 235, 59, 0.75)' : (color === '#008000' ? 'rgba(0, 128, 0, 0.75)' : (color === '#00e676' ? 'rgba(0, 230, 118, 0.75)' : (color === '#ffa500' ? 'rgba(255, 165, 0, 0.85)' : (color === '#2196f3' ? 'rgba(33, 150, 243, 0.75)' : 'rgba(255, 0, 0, 0.75)'))));
         MapSdk.circles.push({
             x: x, y: y, radius: 0.3,
             styling: { main: { strokeStyle: '#000', lineWidth: 1, fillStyle: fill }, mini: { strokeStyle: '#000', lineWidth: 1, fillStyle: fill } },
